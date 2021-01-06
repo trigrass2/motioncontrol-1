@@ -27,10 +27,10 @@
 #
 #------------------------------------------------------------------------------
 
-noinst_PROGRAMS = mainPosition
+noinst_PROGRAMS = config
 
-mainPosition_SOURCES = mainPosition.cpp
-mainPosition_CFLAGS = -I$(top_srcdir)/include -Wall
-mainPosition_LDFLAGS = -L$(top_builddir)/lib/.libs -lethercat -lrt -lpthread
+config_SOURCES = config.cpp
+config_CFLAGS = -I$(top_srcdir)/include -Wall
+config_LDFLAGS = -L$(top_builddir)/lib/.libs -lethercat -lrt -lpthread
 
 #------------------------------------------------------------------------------

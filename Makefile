@@ -117,7 +117,7 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = x86_64-pc-linux-gnu
 host_triplet = x86_64-pc-linux-gnu
-noinst_PROGRAMS = mainPosition$(EXEEXT)
+noinst_PROGRAMS = config$(EXEEXT)
 subdir = examples/dc_user
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
@@ -132,16 +132,16 @@ CONFIG_HEADER = $(top_builddir)/config.h
 CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 PROGRAMS = $(noinst_PROGRAMS)
-am_mainPosition_OBJECTS = mainPosition.$(OBJEXT)
-mainPosition_OBJECTS = $(am_mainPosition_OBJECTS)
-mainPosition_LDADD = $(LDADD)
+am_config_OBJECTS = config.$(OBJEXT)
+config_OBJECTS = $(am_config_OBJECTS)
+config_LDADD = $(LDADD)
 AM_V_lt = $(am__v_lt_$(V))
 am__v_lt_ = $(am__v_lt_$(AM_DEFAULT_VERBOSITY))
 am__v_lt_0 = --silent
 am__v_lt_1 = 
-mainPosition_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) \
+config_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CXXLD) $(AM_CXXFLAGS) \
-	$(CXXFLAGS) $(mainPosition_LDFLAGS) $(LDFLAGS) -o $@
+	$(CXXFLAGS) $(config_LDFLAGS) $(LDFLAGS) -o $@
 AM_V_P = $(am__v_P_$(V))
 am__v_P_ = $(am__v_P_$(AM_DEFAULT_VERBOSITY))
 am__v_P_0 = false
@@ -176,8 +176,8 @@ AM_V_CXXLD = $(am__v_CXXLD_$(V))
 am__v_CXXLD_ = $(am__v_CXXLD_$(AM_DEFAULT_VERBOSITY))
 am__v_CXXLD_0 = @echo "  CXXLD   " $@;
 am__v_CXXLD_1 = 
-SOURCES = $(mainPosition_SOURCES)
-DIST_SOURCES = $(mainPosition_SOURCES)
+SOURCES = $(config_SOURCES)
+DIST_SOURCES = $(config_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -366,9 +366,9 @@ target_alias =
 top_build_prefix = ../../
 top_builddir = ../..
 top_srcdir = ../..
-mainPosition_SOURCES = mainPosition.cpp
-mainPosition_CFLAGS = -I$(top_srcdir)/include -Wall
-mainPosition_LDFLAGS = -L$(top_builddir)/lib/.libs -lethercat -lrt -lpthread
+config_SOURCES = config.cpp
+config_CFLAGS = -I$(top_srcdir)/include -Wall
+config_LDFLAGS = -L$(top_builddir)/lib/.libs -lethercat -lrt -lpthread
 all: all-am
 
 .SUFFIXES:
@@ -412,9 +412,9 @@ clean-noinstPROGRAMS:
 	echo " rm -f" $$list; \
 	rm -f $$list
 
-mainPosition$(EXEEXT): $(mainPosition_OBJECTS) $(mainPosition_DEPENDENCIES) $(EXTRA_mainPosition_DEPENDENCIES) 
-	@rm -f mainPosition$(EXEEXT)
-	$(AM_V_CXXLD)$(mainPosition_LINK) $(mainPosition_OBJECTS) $(mainPosition_LDADD) $(LIBS)
+config$(EXEEXT): $(config_OBJECTS) $(config_DEPENDENCIES) $(EXTRA_config_DEPENDENCIES) 
+	@rm -f config$(EXEEXT)
+	$(AM_V_CXXLD)$(config_LINK) $(config_OBJECTS) $(config_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -422,7 +422,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-include ./$(DEPDIR)/mainPosition.Po
+include ./$(DEPDIR)/config.Po
 
 .cpp.o:
 	$(AM_V_CXX)depbase=`echo $@ | sed 's|[^/]*$$|$(DEPDIR)/&|;s|\.o$$||'`;\
