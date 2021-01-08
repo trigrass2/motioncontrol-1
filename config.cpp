@@ -17,52 +17,57 @@
 /****************************************************************************/
 
 #include "ecrt.h"
-#include "ObjectDictionary.h"
-/****************************************************************************/
+#include "objectdictionary.h"
 
+/****************************************************************************/
 // Application parameters
 #define FREQUENCY  1000                         //Set the frequency in here.
 #define CLOCK_TO_USE CLOCK_MONOTONIC      // A nonsettable system-wide clock that represents monotonic time/ \
                                             since—as described by POSIX—"some unspecified point in the \
                                             past".  On Linux, that point corresponds to the number of seconds\
                                             that the system has been running since it was booted.
-//#define MEASURE_TIMING
-#define MAX_SAFE_STACK (4096 * 4096)
-/****************************************************************************/
 #define NSEC_PER_SEC (1000000000L)                              // Period mesurements in nanoseconds.
 #define PERIOD_NS (NSEC_PER_SEC / FREQUENCY)                    // Period defined in here based on frequency 1sc/freq
+static unsigned int     sync_ref_counter = 0;  // Sync each cycle
+const struct timespec   cycletime        = {0, PERIOD_NS};       // cycletime settings in ns. 
+static unsigned int counter = FREQUENCY;       // 
+
+//#define MEASURE_TIMING  // Uncomment this if you want to measure timing.
+
+#define HOME_POS 0
+#define COUNTS_PER_REVOLUTION 512*19 // 11 is gear reduction for the motor.
+/****************************************************************************/
 
 #define DIFF_NS(A, B) (((B).tv_sec - (A).tv_sec) * NSEC_PER_SEC + (B).tv_nsec - (A).tv_nsec)
        //Since timespec structure consists of sec and ns addition and difference requires new function
         
 
         // Timespec structure to nanoseconds function.
-#define TIMESPEC2NS(T) ((uint64_t) (T).tv_sec * NSEC_PER_SEC + (T).tv_nsec)       
+#define TIMESPEC2NS(T) ((uint64_t) (T).tv_sec * NSEC_PER_SEC + (T).tv_nsec)   
+
 #define TEST_BIT(num,N)     (num && (1<<N))
 #define BIT_SET(num,N)      (num | (1<<N))
 #define BIT_RESET(num,N)    (num & ~(1<<N))
 /****************************************************************************/
 
 // EtherCAT 
-static ec_master_t *master = NULL;
-static ec_master_state_t master_state = {};
+static ec_master_t            *master = NULL;
+static ec_master_state_t       master_state = {};
 
-static ec_domain_t *masterDomain = NULL;
-static ec_domain_state_t masterDomain_state = {};
+static ec_domain_t            *masterDomain = NULL;
+static ec_domain_state_t       masterDomain_state = {};
 
-static ec_slave_config_t *sc = NULL;
-static ec_slave_config_state_t sc_state = {};
+static ec_slave_config_t      *goldSolo_Slave_1 = NULL;
+static ec_slave_config_state_t goldSolo_Slave_1_state = {};
+
+static uint8_t *goldSoloPdoDomain = NULL;             //domains for process data excange for individual slaves
 /****************************************************************************/
-#define HOME_POS 0
-#define COUNTS_PER_REVOLUTION 512*19 // 11 is gear reduction for the motor.
-// process data
-static unsigned int counter = FREQUENCY;
-// process data
-static uint8_t *SERVO_DRIVE_DOMAIN = NULL;             //domaains for process data excange for individual slaves
 
-#define DRIVE_POS  0, 0                    // $ ethercat slaves returns slave position based on their connection queue
-#define GOLD_SOLO_DRIVE 0x0000009a, 0x00030924  // ethercat cstruct will retrun the necessary information for slave adresses and values.          
-                                                // slave vendor id and product code.
+
+
+#define GOLD_SOLO_SLAVE1_POS  0, 0                    // $ ethercat slaves returns slave position based on their connection queue
+#define GOLD_SOLO_DRIVE       0x0000009a, 0x00030924  // ethercat cstruct will retrun the necessary information for slave adresses and values.          
+                                                        // slave vendor id and product code.
 
 // offsets for PDO entries
 static struct {
@@ -95,35 +100,30 @@ static struct {
 
 }offset;
 
-static unsigned int     sync_ref_counter = 0;
-
-const struct timespec cycletime = {0, PERIOD_NS};       // cycletime settings in ns. 
-
-
 static ec_pdo_entry_reg_t masterDomain_regs[] = {
     // INPUT PDO MAPPING ;
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, positionActualVal     , &offset.POSITION_ACTUAL_VALUE},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, positonFollowingError , &offset.POSITION_FOLLOWING_ERROR},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, torqueActualValue     , &offset.TORQUE_ACTUAL_VALUE},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, statusWord            , &offset.STATUS_WORD},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, operationMode         , &offset.CURRENT_OP_MODE},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, velocityActvalue      , &offset.VELOCITY_ACTUAL_VALUE},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, currentActualValue    , &offset.CURRENT_ACTUAL_VALUE},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, dcCircuitLinkVoltage  , &offset.DC_CIRCUIT_LINK_VOLTAGE},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, errorCode             , &offset.ERROR_CODE},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, extraStatusRegister   , &offset.EXTRA_STATUS_REGISTER},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, positionActualVal     , &offset.POSITION_ACTUAL_VALUE},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, positonFollowingError , &offset.POSITION_FOLLOWING_ERROR},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, torqueActualValue     , &offset.TORQUE_ACTUAL_VALUE},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, statusWord            , &offset.STATUS_WORD},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, operationMode         , &offset.CURRENT_OP_MODE},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, velocityActvalue      , &offset.VELOCITY_ACTUAL_VALUE},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, currentActualValue    , &offset.CURRENT_ACTUAL_VALUE},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, dcCircuitLinkVoltage  , &offset.DC_CIRCUIT_LINK_VOLTAGE},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, errorCode             , &offset.ERROR_CODE},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, extraStatusRegister   , &offset.EXTRA_STATUS_REGISTER},
     //-----------------------------------------------------------------
      // OUTPUT PDO Mapping ; 
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, targetPosition        , &offset.TARGET_POSITION},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, targetVelocity        , &offset.TARGET_VELOCITY},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, targetTorque          , &offset.TARGET_TORQUE},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, maxTorque             , &offset.MAX_TORQUE},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, controlWord           , &offset.CONTROL_WORD},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, operationMode         , &offset.OPERATION_MODE},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, profileVelocity       , &offset.PROFILE_VELOCITY},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, profileAcceleration   , &offset.PROFILE_ACCELERATION},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, profileDeceleration   , &offset.PROFILE_DECELERATION},
-    {DRIVE_POS,  GOLD_SOLO_DRIVE, quickStopDeceleration , &offset.QUICK_STOP_DECELERATION},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, targetPosition        , &offset.TARGET_POSITION},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, targetVelocity        , &offset.TARGET_VELOCITY},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, targetTorque          , &offset.TARGET_TORQUE},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, maxTorque             , &offset.MAX_TORQUE},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, controlWord           , &offset.CONTROL_WORD},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, operationMode         , &offset.OPERATION_MODE},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, profileVelocity       , &offset.PROFILE_VELOCITY},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, profileAcceleration   , &offset.PROFILE_ACCELERATION},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, profileDeceleration   , &offset.PROFILE_DECELERATION},
+    {GOLD_SOLO_SLAVE1_POS,  GOLD_SOLO_DRIVE, quickStopDeceleration , &offset.QUICK_STOP_DECELERATION},
     {}
 };
 
@@ -164,12 +164,13 @@ static ec_pdo_entry_info_t GS_PDO_Entries[] = {
 };
 
 static ec_pdo_info_t GS_PDO_Indexes[] = {
-    {0x1605, 7, GS_PDO_Entries + 0},   //16XX From master to slave outputs e.g Target Position
-    {0x1611, 1, GS_PDO_Entries + 7},
+    {0x1605, 7, GS_PDO_Entries + 0},   //16XX From master to slave outputs e.g Target Position RxPDO
+    {0x1611, 1, GS_PDO_Entries + 7}, 
     {0x1613, 1, GS_PDO_Entries + 8},
     {0x1614, 1, GS_PDO_Entries + 9},
     {0x161f, 1, GS_PDO_Entries + 10},
-    {0x1a04, 6, GS_PDO_Entries + 11},   //1AXX From slave to the master inputs e.g Actual Position
+
+    {0x1a04, 6, GS_PDO_Entries + 11},   //1AXX From slave to the master inputs e.g Actual Position TxPDO
     {0x1a0f, 1, GS_PDO_Entries + 17},
     {0x1a18, 1, GS_PDO_Entries + 18},
     {0x1a1f, 1, GS_PDO_Entries + 19},
@@ -186,11 +187,12 @@ static ec_sync_info_t GS_Syncs[] = {
 };
 
 /***************************  EOF ethercat cstruct *******************************************/
-#define SDO_ACCES 1
 // SDO Related methods and attributes;
+#define SDO_ACCES 1
 static ec_sdo_request_t *sdo_to_read[10];
 static ec_sdo_request_t *sdo_to_write[10];
 static unsigned sdoData;
+/****************************************************************************/
 void read_sdo(ec_sdo_request_t *req)
 {
     switch (ecrt_sdo_request_state(req)) {
@@ -237,7 +239,7 @@ void write_sdo(ec_sdo_request_t *req, unsigned data)
  /*timespec consists of seconds and nanoseconds, additin 
     requires external function. We use this functions 
     for time specific measurements 
-*/
+  */
 struct timespec timespec_add(struct timespec time1, struct timespec time2)
 {
     struct timespec result;
@@ -255,69 +257,69 @@ struct timespec timespec_add(struct timespec time1, struct timespec time2)
 
 /*****************************************************************************/
 
-void check_masterDomain_state(void)
+void check_masterDomain_state()
 {
-    ec_domain_state_t ds;            //Domain instance
+    ec_domain_state_t domainState;            //Domain instance
 
-    ecrt_domain_state(masterDomain, &ds);
+    ecrt_domain_state(masterDomain, &domainState);
 
-    if (ds.working_counter != masterDomain_state.working_counter)
-        printf("masterDomain: WC %u.\n", ds.working_counter);
-    if (ds.wc_state != masterDomain_state.wc_state)
-        printf("masterDomain: State %u.\n", ds.wc_state);
+    if (domainState.working_counter != masterDomain_state.working_counter)
+        printf("masterDomain: WC %u.\n", domainState.working_counter);
+    if (domainState.wc_state != masterDomain_state.wc_state)
+        printf("masterDomain: State %u.\n", domainState.wc_state);
 
-    masterDomain_state = ds;
+    masterDomain_state = domainState;
 }
 
 /*****************************************************************************/
 
 int check_master_state()
 {
-    ec_master_state_t ms;
+    ec_master_state_t masterState;
 
-    ecrt_master_state(master, &ms);
+    ecrt_master_state(master, &masterState);
 
-    if (ms.slaves_responding != master_state.slaves_responding)
+    if (masterState.slaves_responding != master_state.slaves_responding)
     {
-        printf("%u slave(s).\n", ms.slaves_responding);
-        if (ms.slaves_responding < 1) 
+        printf("%u slave(s).\n", masterState.slaves_responding);
+        if (masterState.slaves_responding < 1) 
         {
-        printf("Connection error, only %d slaves responding",ms.slaves_responding);
+        printf("Connection error, only %d slaves responding",masterState.slaves_responding);
         return 0;
         }
     }
-    if (ms.al_states != master_state.al_states)
+    if (masterState.al_states != master_state.al_states)
     {
-        printf("AL states: 0x%02X.\n", ms.al_states);
+        printf("AL states: 0x%02X.\n", masterState.al_states);
     }
-    if (ms.link_up != master_state.link_up)
+    if (masterState.link_up != master_state.link_up)
     {
-        printf("Link is %s.\n", ms.link_up ? "up" : "down");
-        if(!ms.link_up) 
+        printf("Link is %s.\n", masterState.link_up ? "up" : "down");
+        if(!masterState.link_up) 
         return 0;
     }
-    master_state = ms;
+    master_state = masterState;
     return 1;
 }
 
 
 int check_slave_config_states()
 {
-    ec_slave_config_state_t s;
+    ec_slave_config_state_t slaveState;
 
-    ecrt_slave_config_state(sc, &s);
+    ecrt_slave_config_state(goldSolo_Slave_1, &slaveState);
 
-    if (s.al_state != sc_state.al_state) {
-        printf("AnaIn: State 0x%02X.\n", s.al_state);
+    if (slaveState.al_state != goldSolo_Slave_1_state.al_state) {
+        printf("AnaIn: State 0x%02X.\n", slaveState.al_state);
     }
-    if (s.online != sc_state.online) {
-        printf("AnaIn: %s.\n", s.online ? "online" : "offline");
+    if (slaveState.online != goldSolo_Slave_1_state.online) {
+        printf("AnaIn: %s.\n", slaveState.online ? "online" : "offline");
     }
-    if (s.operational != sc_state.operational) {
-        printf("AnaIn: %soperational.\n", s.operational ? "" : "Not ");
+    if (slaveState.operational != goldSolo_Slave_1_state.operational) {
+        printf("AnaIn: %soperational.\n", slaveState.operational ? "" : "Not ");
     }
     
-     sc_state = s;
+     goldSolo_Slave_1_state = slaveState;
      return 1;
 }
 /****************************************************************************/
@@ -339,6 +341,7 @@ struct timespec wakeupTime, time;
 
     // get current time
 clock_gettime(CLOCK_TO_USE, &wakeupTime);
+
 uint32_t command=0x004F;
 int begin=10;
 unsigned int actual_position=0;
@@ -347,6 +350,7 @@ int32_t T_position = 1e5;
 int8_t cur_op_mode;
 int8_t new_op_mode;
 uint32_t c_word;
+
     while(1) 
  {
             
@@ -451,15 +455,15 @@ uint32_t c_word;
                 latency_max_ns = 0;
                 latency_min_ns = 0xffffffff;
         #endif
-                actual_position = EC_READ_U32(SERVO_DRIVE_DOMAIN+offset.POSITION_ACTUAL_VALUE);
-                status          = EC_READ_U16(SERVO_DRIVE_DOMAIN+offset.STATUS_WORD);
+                actual_position = EC_READ_U32(goldSoloPdoDomain+offset.POSITION_ACTUAL_VALUE);
+                status          = EC_READ_U16(goldSoloPdoDomain+offset.STATUS_WORD);
                 // calculate new process data
                 printf("Status value    : 0x%x \n", status);
                 printf("Position value  : %d \n",actual_position);
                 printf("Target position : %d \n",T_position);
                 printf("Error in pos    : %d \n",T_position-actual_position);
                 printf("\n\n");
-               
+/*************************************************************************************************/               
                 //DS402 CANOpen over EtherCAT state machine
             if( (status & command) == 0x0040  )  // If status is "Switch on disabled", \
                                                    change state to "Ready to switch on"
@@ -467,7 +471,7 @@ uint32_t c_word;
                 c_word  = goreadyToSwitchOn;
                 command = 0x006f;
                 //printf("Transiting to -Ready to switch on state...- \n");
-               // EC_WRITE_U16(SERVO_DRIVE_DOMAIN + offset.CONTROL_WORD, c_word);
+               // EC_WRITE_U16(goldSoloPdoDomain + offset.CONTROL_WORD, c_word);
             }
 
             else if( (status & command) == 0x0021) // If status is "Ready to switch on", \
@@ -476,7 +480,7 @@ uint32_t c_word;
                 c_word  = goSwitchOn;     
                 command = 0x006f;
                 //printf("Transiting to -Switched on state...- \n");            
-                //EC_WRITE_U16(SERVO_DRIVE_DOMAIN + offset.CONTROL_WORD, c_word);                                                   
+                //EC_WRITE_U16(goldSoloPdoDomain + offset.CONTROL_WORD, c_word);                                                   
             }
 
             else if( (status & command) == 0x0023)         // If status is "Switched on", \
@@ -485,8 +489,8 @@ uint32_t c_word;
                // printf("Operation enabled...\n");
                 c_word  = goEnable;
                 command = 0x006f;
-                //EC_WRITE_U16(SERVO_DRIVE_DOMAIN + offset.CONTROL_WORD, c_word);
-               // EC_WRITE_S32(SERVO_DRIVE_DOMAIN + offset.TARGET_POSITION, T_position);
+                //EC_WRITE_U16(goldSoloPdoDomain + offset.CONTROL_WORD, c_word);
+               // EC_WRITE_S32(goldSoloPdoDomain + offset.TARGET_POSITION, T_position);
             }else if( (status & command) == 0x0027){        // Operation position mode ; set new-position;
                 c_word=run;
                 if(TEST_BIT(status,10)){
@@ -495,7 +499,7 @@ uint32_t c_word;
                 command=0x0023;
                 //c_word = 0x3F;
                 }
-                //EC_WRITE_U16(SERVO_DRIVE_DOMAIN + offset.CONTROL_WORD, c_word);
+                //EC_WRITE_U16(goldSoloPdoDomain + offset.CONTROL_WORD, c_word);
             }
             else if ((status & 0x4f) == 0X08)
             {
@@ -503,13 +507,13 @@ uint32_t c_word;
                 printf("ERROR : Motor fault state ... \n"
                            "Resetting Motor state\n");
                 c_word = 0XFFFF;
-                EC_WRITE_U16(SERVO_DRIVE_DOMAIN + offset.CONTROL_WORD, c_word);
+                EC_WRITE_U16(goldSoloPdoDomain + offset.CONTROL_WORD, c_word);
             }
     }
 
             // write process data
-            EC_WRITE_U16(SERVO_DRIVE_DOMAIN + offset.CONTROL_WORD, c_word);
-            EC_WRITE_S32(SERVO_DRIVE_DOMAIN + offset.TARGET_POSITION, T_position);
+            EC_WRITE_U16(goldSoloPdoDomain + offset.CONTROL_WORD, c_word);
+            EC_WRITE_S32(goldSoloPdoDomain + offset.TARGET_POSITION, T_position);
           
             if (sync_ref_counter) {
                 sync_ref_counter--;
@@ -550,69 +554,69 @@ int main()
      if (!masterDomain)
         return -1;
     printf("Getting slave configuration...\n");
-    if (!(sc = ecrt_master_slave_config(master,
-                    DRIVE_POS, GOLD_SOLO_DRIVE))) {  
+    if (!(goldSolo_Slave_1 = ecrt_master_slave_config(master,
+                    GOLD_SOLO_SLAVE1_POS, GOLD_SOLO_DRIVE))) {  
         fprintf(stderr, "Failed to get slave configuration.\n");
         return -1;
     }
 //****************************** SDO REQUEST PART *******************************
 #ifdef SDO_ACCES
 
-    if (!(sdo_to_read[0] = ecrt_slave_config_create_sdo_request(sc, statusWord, 2))) {
+    if (!(sdo_to_read[0] = ecrt_slave_config_create_sdo_request(goldSolo_Slave_1, statusWord, 2))) {
         fprintf(stderr, "Failed to create SDO request.\n");
         return -1;
     }
     ecrt_sdo_request_timeout(sdo_to_read[0], 500); // ms   
 
-    if (!(sdo_to_read[1] = ecrt_slave_config_create_sdo_request(sc, positionActualVal, 4))) {
+    if (!(sdo_to_read[1] = ecrt_slave_config_create_sdo_request(goldSolo_Slave_1, positionActualVal, 4))) {
 	fprintf(stderr, "Failed to create SDO request for object position actual value\n");
 	return -1;
     }
     ecrt_sdo_request_timeout(sdo_to_read[0], 50); // ms
 
-    if (!(sdo_to_read[2] = ecrt_slave_config_create_sdo_request(sc, velocityActvalue, 4))) {
+    if (!(sdo_to_read[2] = ecrt_slave_config_create_sdo_request(goldSolo_Slave_1, velocityActvalue, 4))) {
 	fprintf(stderr, "Failed to create SDO request for object actual velocity...\n");
 	return -1;
     }
     ecrt_sdo_request_timeout(sdo_to_read[0], 50); // ms
 
-    if (!(sdo_to_read[3] = ecrt_slave_config_create_sdo_request(sc, torqueActualValue, 4))) {
+    if (!(sdo_to_read[3] = ecrt_slave_config_create_sdo_request(goldSolo_Slave_1, torqueActualValue, 4))) {
 	fprintf(stderr, "Failed to create SDO request for object ...\n");
 	return -1;
     }
     ecrt_sdo_request_timeout(sdo_to_read[0], 50); // ms
 
-    if (!(sdo_to_read[4] = ecrt_slave_config_create_sdo_request(sc, errorCode, 4))) {
+    if (!(sdo_to_read[4] = ecrt_slave_config_create_sdo_request(goldSolo_Slave_1, errorCode, 4))) {
 	fprintf(stderr, "Failed to create SDO request for object ...\n");
 	return -1;
     }
     ecrt_sdo_request_timeout(sdo_to_read[0], 50); // ms
 
-    if (!(sdo_to_read[5] = ecrt_slave_config_create_sdo_request(sc, positonFollowingError, 4))) {
+    if (!(sdo_to_read[5] = ecrt_slave_config_create_sdo_request(goldSolo_Slave_1, positonFollowingError, 4))) {
 	fprintf(stderr, "Failed to create SDO request for object ...\n");
 	return -1;
     }
     ecrt_sdo_request_timeout(sdo_to_read[0], 50); // ms
 
-    if (!(sdo_to_read[6] = ecrt_slave_config_create_sdo_request(sc, operationModeDisplay, 1 ))) {
+    if (!(sdo_to_read[6] = ecrt_slave_config_create_sdo_request(goldSolo_Slave_1, operationModeDisplay, 1 ))) {
 	fprintf(stderr, "Failed to create SDO request for object ...\n");
 	return -1;
     }
     ecrt_sdo_request_timeout(sdo_to_read[0], 50); // ms
 
-    if (!(sdo_to_read[7] = ecrt_slave_config_create_sdo_request(sc, maxCurrent, 4))) {
+    if (!(sdo_to_read[7] = ecrt_slave_config_create_sdo_request(goldSolo_Slave_1, maxCurrent, 4))) {
 	fprintf(stderr, "Failed to create SDO request for object ...\n");
 	return -1;
     }
     ecrt_sdo_request_timeout(sdo_to_read[0], 50); // ms
 
-    if (!(sdo_to_read[8] = ecrt_slave_config_create_sdo_request(sc, positonFollowingError, 4))) {
+    if (!(sdo_to_read[8] = ecrt_slave_config_create_sdo_request(goldSolo_Slave_1, positonFollowingError, 4))) {
 	fprintf(stderr, "Failed to create SDO request for object ...\n");
 	return -1;
     }
     ecrt_sdo_request_timeout(sdo_to_read[0], 50); // ms
 
-    if (!(sdo_to_read[9] = ecrt_slave_config_create_sdo_request(sc, positonFollowingError, 4))) {
+    if (!(sdo_to_read[9] = ecrt_slave_config_create_sdo_request(goldSolo_Slave_1, positonFollowingError, 4))) {
 	fprintf(stderr, "Failed to create SDO request for object ...\n");
 	return -1;
     }
@@ -621,14 +625,14 @@ int main()
 #endif
 //**********************************************
             printf("Configuring PDOs...\n");
-    if (ecrt_slave_config_pdos(sc,EC_END,GS_Syncs)){
+    if (ecrt_slave_config_pdos(goldSolo_Slave_1,EC_END,GS_Syncs)){
         fprintf(stderr, "Failed to configure  PDOs!\n");
         exit(EXIT_FAILURE);
     } else{
         printf("*Success to configuring PDOs*\n");
     }
-    if (!(sc = ecrt_master_slave_config(master,
-                    DRIVE_POS, GOLD_SOLO_DRIVE))) {  
+    if (!(goldSolo_Slave_1 = ecrt_master_slave_config(master,
+                    GOLD_SOLO_SLAVE1_POS, GOLD_SOLO_DRIVE))) {  
         fprintf(stderr, "Failed to get slave configuration.\n");
         return -1;
     }
@@ -640,44 +644,44 @@ int main()
         printf("operation_mode=%d,  ctrl_word=%d,  target_position=%d,  status_word=%d,  mode_display=%d,  current_velocity=%d\n",
                 offset.OPERATION_MODE,offset.CONTROL_WORD,offset.TARGET_POSITION,offset.STATUS_WORD,offset.CURRENT_OP_MODE,offset.VELOCITY_ACTUAL_VALUE);
     }
-   /* offset.CONTROL_WORD = ecrt_slave_config_reg_pdo_entry(sc,
+   /* offset.CONTROL_WORD = ecrt_slave_config_reg_pdo_entry(goldSolo_Slave_1,
             0x6040, 0x00, masterDomain, NULL);
     if (offset.CONTROL_WORD < 0)
         return -1;
     printf("Initalization phase 6 started...\n");
-    offset.TARGET_POSITION = ecrt_slave_config_reg_pdo_entry(sc,
+    offset.TARGET_POSITION = ecrt_slave_config_reg_pdo_entry(goldSolo_Slave_1,
             0x607a, 0x00, masterDomain, NULL);
     if (offset.TARGET_POSITION < 0)
         return -1;
     printf("TARGET_POSITION PDO ENTRY REGISTERED...\n");
-    offset.TARGET_VELOCITY = ecrt_slave_config_reg_pdo_entry(sc,
+    offset.TARGET_VELOCITY = ecrt_slave_config_reg_pdo_entry(goldSolo_Slave_1,
             0x60ff, 0x00, masterDomain,NULL);
     if(offset.TARGET_VELOCITY<0)
     return -1;
     printf("TARGET_VELOCITY PDO ENTRY REGISTERED...\n");
     printf("VELOCITY_OFFSET PDO ENTRY REGISTERED...\n");
-    offset.STATUS_WORD = ecrt_slave_config_reg_pdo_entry(sc,
+    offset.STATUS_WORD = ecrt_slave_config_reg_pdo_entry(goldSolo_Slave_1,
             0x6041, 0x00, masterDomain, NULL);
     if (offset.STATUS_WORD < 0)
         return -1;
     printf("STATUS_WORD PDO ENTRY REGISTERED...\n");
-    offset.POSITION_ACTUAL_VALUE = ecrt_slave_config_reg_pdo_entry(sc,
+    offset.POSITION_ACTUAL_VALUE = ecrt_slave_config_reg_pdo_entry(goldSolo_Slave_1,
             0x6064, 0x00, masterDomain, NULL);
     if (offset.POSITION_ACTUAL_VALUE < 0)
         return -1;
     printf("POSITION_ACTUAL_VALUE PDO ENTRY REGISTERED...\n");
-    offset.VELOCITY_ACTUAL_VALUE = ecrt_slave_config_reg_pdo_entry(sc,
+    offset.VELOCITY_ACTUAL_VALUE = ecrt_slave_config_reg_pdo_entry(goldSolo_Slave_1,
             0x6069, 0x00, masterDomain, NULL);
     if (offset.VELOCITY_ACTUAL_VALUE < 0)
         return -1;
     printf("VELOCITY_ACTUAL_VALUE PDO ENTRY REGISTERED...\n");
-    offset.TORQUE_ACTUAL_VALUE = ecrt_slave_config_reg_pdo_entry(sc,
+    offset.TORQUE_ACTUAL_VALUE = ecrt_slave_config_reg_pdo_entry(goldSolo_Slave_1,
             0x6077, 0x00, masterDomain, NULL);
     if (offset.TORQUE_ACTUAL_VALUE < 0)
         return -1;
     printf("TORQUE_ACTUAL_VALUE PDO ENTRY REGISTERED...\n");
 
-    offset.CURRENT_OP_MODE = ecrt_slave_config_reg_pdo_entry(sc,
+    offset.CURRENT_OP_MODE = ecrt_slave_config_reg_pdo_entry(goldSolo_Slave_1,
             0x6061, 0x00, masterDomain, NULL);
     if (offset.TORQUE_ACTUAL_VALUE < 0)
         return -1;
@@ -687,7 +691,7 @@ int main()
 
 
     // configure SYNC signals for this slave
-    ecrt_slave_config_dc(sc, 0x0300, PERIOD_NS, 125000, 0, 0);
+    ecrt_slave_config_dc(goldSolo_Slave_1, 0x0300, PERIOD_NS, 125000, 0, 0);
 
     
     printf("Activating master...\n");
@@ -696,7 +700,7 @@ int main()
          return -1;
     }
 
-    if(!(SERVO_DRIVE_DOMAIN = ecrt_domain_data(masterDomain)))
+    if(!(goldSoloPdoDomain = ecrt_domain_data(masterDomain)))
     {
         printf("Domain PDO registration error... \n");
         return -1;
