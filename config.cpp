@@ -510,7 +510,7 @@ uint32_t c_word;
                 EC_WRITE_U16(goldSoloPdoDomain + offset.CONTROL_WORD, c_word);
             }
     }
-
+/**************************************************************************************/
             // write process data
             EC_WRITE_U16(goldSoloPdoDomain + offset.CONTROL_WORD, c_word);
             EC_WRITE_S32(goldSoloPdoDomain + offset.TARGET_POSITION, T_position);
@@ -539,11 +539,6 @@ uint32_t c_word;
 
 int main()
 {
-    if (mlockall(MCL_CURRENT | MCL_FUTURE) == -1) {
-        perror("mlockall failed");
-        return -1;
-    }
-
     printf("Requesting master...\n");
     master = ecrt_request_master(0);
     if (!master)
@@ -558,6 +553,13 @@ int main()
                     GOLD_SOLO_SLAVE1_POS, GOLD_SOLO_DRIVE))) {  
         fprintf(stderr, "Failed to get slave configuration.\n");
         return -1;
+    }
+    printf("Configuring PDOs...\n");
+    if (ecrt_slave_config_pdos(goldSolo_Slave_1,EC_END,GS_Syncs)){
+        fprintf(stderr, "Failed to configure  PDOs!\n");
+        exit(EXIT_FAILURE);
+    } else{
+        printf("*Success to configuring PDOs*\n");
     }
 //****************************** SDO REQUEST PART *******************************
 #ifdef SDO_ACCES
@@ -624,18 +626,7 @@ int main()
 
 #endif
 //**********************************************
-            printf("Configuring PDOs...\n");
-    if (ecrt_slave_config_pdos(goldSolo_Slave_1,EC_END,GS_Syncs)){
-        fprintf(stderr, "Failed to configure  PDOs!\n");
-        exit(EXIT_FAILURE);
-    } else{
-        printf("*Success to configuring PDOs*\n");
-    }
-    if (!(goldSolo_Slave_1 = ecrt_master_slave_config(master,
-                    GOLD_SOLO_SLAVE1_POS, GOLD_SOLO_DRIVE))) {  
-        fprintf(stderr, "Failed to get slave configuration.\n");
-        return -1;
-    }
+
     if (ecrt_domain_reg_pdo_entry_list(masterDomain, masterDomain_regs)){
         fprintf(stderr, "PDO entry registration failed!\n");
         exit(EXIT_FAILURE);
@@ -706,6 +697,10 @@ int main()
         return -1;
     }
 
+     if (mlockall(MCL_CURRENT | MCL_FUTURE) == -1) {
+        perror("mlockall failed");
+        return -1;
+    }
         /* Set priority */
 
     struct sched_param param = {};
@@ -714,79 +709,57 @@ int main()
     int err;
     
     printf("\nStarting cyclic function.\n");
+    
     param.sched_priority = sched_get_priority_max(SCHED_FIFO);
 
     printf("Using priority %i\n.", param.sched_priority);
-    if (sched_setscheduler(0, SCHED_FIFO, &param) == -1)
-    {
+    if (sched_setscheduler(0, SCHED_FIFO, &param) == -1){
         perror("sched_setscheduler failed\n");
     }
 
-
     err = pthread_attr_init(&attr);
-        if (err) {
-                printf("init pthread attributes failed\n");
-                goto out;
-        }
- 
-        /* Set a specific stack size  */
-        err = pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
-        if (err) 
-        {
-            printf("pthread setstacksize failed\n");
+    if (err) {
+            printf("init pthread attributes failed\n");
             goto out;
-        }
- 
-        /* Set scheduler policy and priority of pthread */
-        err = pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
-        if (err) {
-                printf("pthread setschedpolicy failed\n");
-                goto out;
-        }
-        //param.sched_priority = 80;
-        err = pthread_attr_setschedparam(&attr, &param);
-        if (err) {
-                printf("pthread setschedparam failed\n");
-                goto out;
-        }
-        /* Use scheduling parameters of attr */
-        err = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
-        if (err) 
-        {
-                printf("pthread setinheritsched failed\n");
-                goto out;
-        }
- 
-        /* Create a pthread with specified attributes */    
-        err = pthread_create(&cyclicThread, &attr, &cyclic_task, NULL);
-        if (err) {
-                printf("create pthread failed\n");
-                goto out;
-        }
- 
-        /* Join the thread and wait until it is done */
-        err = pthread_join(cyclicThread, NULL);
-        if (err)
-                printf("join pthread failed\n");
-    
-/*
-    pthread_attr_init(&attr);
+    }
 
-    pthread_attr_setschedpolicy(&attr,SCHED_FIFO);
+    /* Set a specific stack size  */
+    err = pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
+    if (err) {
+        printf("pthread setstacksize failed\n");
+        goto out;
+    }
 
-    param.sched_priority = 80;
+    /* Set scheduler policy and priority of pthread */
+    err = pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
+    if (err) {
+            printf("pthread setschedpolicy failed\n");
+            goto out;
+    }
+    err = pthread_attr_setschedparam(&attr, &param);
+    if (err) {
+            printf("pthread setschedparam failed\n");
+            goto out;
+    }
+    /* Use scheduling parameters of attr */
+    err = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+    if (err) 
+    {
+            printf("pthread setinheritsched failed\n");
+            goto out;
+    }
 
-    pthread_attr_setschedparam(&attr,&param);
+    /* Create a pthread with specified attributes */    
+    err = pthread_create(&cyclicThread, &attr, &cyclic_task, NULL);
+    if (err) {
+            printf("create pthread failed\n");
+            return err;
+    }
 
-    err = pthread_create(&cyclicThread,&attr,&cyclic_task,NULL);
-
-    err = pthread_join(cyclicThread,NULL);
-*/
-    //cyclic_task();
-
-out:
-        return err;
-        
+    /* Join the thread and wait until it is done */
+    err = pthread_join(cyclicThread, NULL);
+    if (err)
+            printf("join pthread failed\n");
     return 0;
 }
 
